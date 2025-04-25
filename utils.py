@@ -2,8 +2,8 @@ import os
 import random
 import shutil
 import zipfile
-import streamlit as st
 from pathlib import Path
+from ultralytics import YOLO
 
 
 # ----------------- UTILITY CLASSES FOR UPLOAD_DATASET-----------------
@@ -64,3 +64,63 @@ class ClassificationDatasetSplitter:
 
             if not os.listdir(category_path):
                 os.rmdir(category_path)
+
+# ----------------- UTILITY CLASSES FOR TRAINING_YOLO_MODEL-----------------
+class DatasetManager:
+    @staticmethod
+    def copy_classification_dataset(source_path, dest_path):
+        for phase in ["train", "valid", "test"]:
+            src = os.path.join(source_path, phase)
+            dest = os.path.join(dest_path, phase)
+            if os.path.exists(src):
+                for class_dir in os.listdir(src):
+                    src_class = os.path.join(src, class_dir)
+                    dest_class = os.path.join(dest, class_dir)
+                    os.makedirs(dest_class, exist_ok=True)
+                    for file in os.listdir(src_class):
+                        shutil.copy2(os.path.join(src_class, file), os.path.join(dest_class, file))
+
+    @staticmethod
+    def copy_detection_dataset(selected_versions, src_base, dest_base):
+        split_map = {"train": "train", "validate": "valid", "test": "test"}
+        for original, target in split_map.items():
+            for sub in ["images", "labels"]:
+                for version in selected_versions:
+                    src_path = os.path.join(src_base, version, original, sub)
+                    dest_path = os.path.join(dest_base, target, sub)
+                    if os.path.exists(src_path):
+                        os.makedirs(dest_path, exist_ok=True)
+                        for file in os.listdir(src_path):
+                            shutil.copy2(os.path.join(src_path, file), os.path.join(dest_path, file))
+
+
+class ModelTrainer:
+    def _init_(self, run_name, model_size, dataset_type):
+        self.run_name = run_name
+        self.model_size = model_size
+        self.dataset_type = dataset_type
+        self.trainer = YOLO(f"yolov8{model_size}{'-cls' if dataset_type == 'Classification' else ''}.pt")
+
+    def train(self, data_path, epochs, lr):
+        self.trainer.train(
+            data=data_path,
+            model=self.trainer,
+            epochs=epochs,
+            lr0=lr,
+            name=self.run_name
+        )
+
+
+class ModelManager:
+    @staticmethod
+    def copy_model(src_folder, dest_folder, run_name):
+        shutil.copytree(src_folder, dest_folder, dirs_exist_ok=True)
+        weights_folder = os.path.join(dest_folder, "weights")
+        best_model = os.path.join(weights_folder, "best.pt")
+        renamed_model = os.path.join(weights_folder, f"{run_name}.pt")
+
+        if os.path.exists(best_model):
+            os.rename(best_model, renamed_model)
+            print(f"[INFO] Model renamed and saved at: {renamed_model}")
+        else:
+            print("[ERROR] best.pt not found in weights folder.")
